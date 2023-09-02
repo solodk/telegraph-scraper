@@ -65,22 +65,21 @@ class Scraper(object):
         '''
         self.getImageList(page)
 
-        for index, file in enumerate(self.img_list, start=1):
+        for index, file in enumerate(self.imagelist, start=1):
             with open(f'{index}.jpg', 'wb') as f:
                 f.write(requests.get(f'https://telegra.ph/file/{file}', stream=True).content)
     
     def getImageList(self, page):
         '''
-        Takes a names of images on a page
+        Takes a names of images on a page into list
         '''
-        self.img_list = []
-
+        self.imagelist = []
         content = page['result']['content']
         for item in content:
             if isinstance(item, dict) and item['tag'] == 'figure':
                 for sub_tag in item['children']:
                     if sub_tag['tag'] == 'img':
-                        self.img_list.append(sub_tag['attrs']['src'][6:])
+                        self.imagelist.append(sub_tag['attrs']['src'][6:])
 
     def getText(self, page):
         '''
@@ -88,25 +87,49 @@ class Scraper(object):
         '''
         self.getTextList(page)
 
-        self.text_list = list(filter(None, self.text_list)) #filter empty values from text_list
-        if self.text_list:
+        self.textlist = list(filter(None, self.textlist)) #filter empty values from textlist
+        if self.textlist:
             with open('text.txt', 'w', encoding='utf-8') as f:
-                for line in self.text_list:
+                for line in self.textlist:
                     f.write(f'{line}\n')
 
     def getTextList(self, page):
         '''
-        Collect all text form page
+        Collect all text form page into list
         '''
-        self.text_list = []
-
+        self.textlist = []
         content = page['result']['content']
         for item in content:
             if 'tag' in item and item['tag'] == 'p':
                 if 'children' in item:
                     paragraph_text = ' '.join(child for child in item['children'] if isinstance(child, str))
-                    self.text_list.append(paragraph_text)
+                    self.textlist.append(paragraph_text)
     
+    def getLinks(self, page):
+        '''
+        Gather all links from page and saves it into file
+        '''
+        self.getLinksList(page)
+
+        if self.linklist:
+            with open('links.txt', 'w', encoding='utf-8') as f:
+                for line in self.linklist:
+                    f.write(f'{line}\n')
+
+    def getLinksList(self, page):
+        '''
+        Collect all links form page into list
+        '''
+        self.linklist = []
+        content = page['result']['content']
+        for item in content:
+            #if isinstance(item, dict) and 'children' in item:
+            if 'children' in item:
+                for dict in item['children']:
+                    if 'tag' in dict and dict['tag'] == 'a':
+                        #dict['attrs']['href']
+                        self.linklist.append(dict['attrs']['href'])
+
     def filterSpam(self, page):
         '''
         Checks if page ok for current filters
@@ -128,8 +151,13 @@ class Scraper(object):
         global max
         
         self.getTextList(page)
-        length = sum(len(string) for string in self.text_list)
+        length = sum(len(string) for string in self.textlist)
         return (min is None or length >= min) and (max is None or length <= max)
+    
+
+
+    
+
 
 def parser():
     '''
@@ -189,7 +217,7 @@ def main():
         if args.screenshot or args.images or args.text or args.links or args.html:
             query_path = os.path.join(root, line)
             if not os.path.exists(query_path):
-                    os.makedirs(query_path)
+                os.makedirs(query_path)
 
             for page in filtered_pages:
                 page_name = page['result']['path']
@@ -206,6 +234,9 @@ def main():
                         telegraph.getText(page)
                     except Exception as ex:
                         print(f'Page {page_name} crashed: {ex}')
+                
+                if args.links:
+                    telegraph.getLinks(page)
 
                 
         else:
