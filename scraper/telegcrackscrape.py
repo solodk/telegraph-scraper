@@ -1,7 +1,9 @@
 import argparse
 import requests
+import json
 import os
 
+from datetime import datetime, timedelta
 from tqdm import tqdm
 
 import extra
@@ -10,40 +12,78 @@ class Scraper(object):
     def __init__(self, query):
         self.input_query = query
         self.session = requests.Session()
+        self.cache_file = self.input_query + '_cache_store'
+        self.cache_path = os.path.join(os.path.dirname(__file__), 'cache', self.cache_file)
+        self.currentdate = datetime.now()
+        self.filtered_pages = []
+        self.getCache()
         self.indexQuery()
-        
+        self.updateCache()
+    
+    def getCache(self):
+        try:
+            with open(self.cache_path, 'r', encoding='utf-8') as f:
+                f.seek(0)
+                self.cache = json.load(f)
+        except Exception:
+            self.cache = {}
+        self.newQuery()
+
+    def updateCache(self):
+        '''
+        This function is meant to update the current used cache file with any new information
+        '''
+        self.cache = {
+            'pagelist':self.pagelist[:],
+            'date':self.currentdate
+        }
+
+        cache_dir = os.path.dirname(self.cache_path)
+        if not os.path.exists(cache_dir):
+            os.makedirs(cache_dir)
+
+        with open(self.cache_path, 'w', encoding='utf-8') as f:
+            json.dump(self.cache, f, ensure_ascii=False, indent=4, default=str)
+    
+    def newQuery(self):
+
+        if self.cache:
+            self.start_date = datetime.fromisoformat(self.cache['date'])
+            self.end_date = self.currentdate
+            self.pagelist = self.cache['pagelist'][:]
+        else:
+            self.start_date = datetime(2000, 1, 1) #leap year
+            self.end_date = self.start_date + timedelta(366)
+            self.pagelist = []
+
     def indexQuery(self):
         '''
         Makes a list of pages by using getJSON() func for a single query
         :params: none
         :return: none
         '''
-        self.pagelist = []
-        
-        try:
-            for MM in range(1, 13):
-                for DD in range(1, 32):
-                    index = 1
-                    
-                    while True:
-                        if index == 1:
-                            search_query = [self.input_query, f'{MM:02}', f'{DD:02}']
-                            search_query = '-'.join(search_query)
-                            data = self.getJSON(search_query)
+        index = 1
 
-                        else:
-                            search_query = [self.input_query, f'{MM:02}', f'{DD:02}', f'{index}']
-                            search_query = '-'.join(search_query)
-                            data = self.getJSON(search_query)
+        while self.start_date < self.end_date:
+            formatted_date = self.start_date.strftime('%m-%d')
+            search_query = [self.input_query, formatted_date]
 
-                        if data['ok'] is False:
-                            break
-                        else:
-                            self.pagelist.append(data)
-                            index += 1
-        except Exception as ex:
-            print(f'indexQuery() error: {ex}')
+            if index > 1:
+                search_query.append(str(index))
 
+            search_query = '-'.join(search_query)
+
+            try:
+                data = self.getJSON(search_query)
+                if data['ok'] is True:
+                    self.pagelist.append(data)
+                    index += 1
+                else:
+                    self.start_date += timedelta(days=1)
+                    index = 1 #Reset the index
+            except Exception as ex:
+                print(f'indexQuery(): Error at {search_query}')
+                
     def getJSON(self, search_query):
         '''
         Searching for a page by a single query
@@ -57,7 +97,6 @@ class Scraper(object):
         except Exception as ex:
             print(f'getJSON(): Failed to get {search_query}')
         return result
-
 
     def getImages(self, page):
         '''
@@ -102,8 +141,9 @@ class Scraper(object):
         for item in content:
             if 'tag' in item and item['tag'] == 'p':
                 if 'children' in item:
-                    paragraph_text = ' '.join(child for child in item['children'] if isinstance(child, str))
-                    self.textlist.append(paragraph_text)
+                    for child in item['children']:
+                        if isinstance(child, str):
+                            self.textlist.append(child.replace('\n', ' ').strip())
     
     def getLinks(self, page):
         '''
@@ -130,35 +170,32 @@ class Scraper(object):
                         #dict['attrs']['href']
                         self.linklist.append(dict['attrs']['href'])
 
-    def filterSpam(self, page):
+    def filterSpam(self):
         '''
         Checks if page ok for current filters
-        :params: page in json, limit int
-        :return: page if it ok
+        :params: page in json
+        :return: true if author name is not in spamlist
         '''
-        author_name = page.get('result', {}).get('author_name')
-        if author_name is not None and author_name in extra.spam:
-            return False
-        return True
-
-    def filterText(self, page):
-        '''
-        Checks if page ok for current filters
-        :params: page in json, limit int
-        :return: page if it ok
-        '''
-        global min
-        global max
         
-        self.getTextList(page)
-        length = sum(len(string) for string in self.textlist)
-        return (min is None or length >= min) and (max is None or length <= max)
-    
+        for page in self.pagelist[:]:
+            author_name = page.get('result', {}).get('author_name')
+            if author_name is not None and author_name in extra.spam:
+                self.pagelist.remove(page)     
 
-
-    
-
-
+    def filterText(self, min_length, max_length):
+        '''
+        Checks if page ok for current filters
+        :params: page in json
+        :return: true if text length in range of min and max
+        '''
+        for page in self.pagelist[:]:
+            self.getTextList(page)
+            length = sum(len(string) for string in self.textlist)
+            if min_length is not None and length < min_length:
+                self.pagelist.remove(page)
+            elif max_length is not None and length > max_length:
+                self.pagelist.remove(page)
+                    
 def parser():
     '''
     Returns the parser arguments
@@ -173,26 +210,20 @@ def parser():
     main_grp.add_argument('-i', '--input-file', help = '<INPUT_FILE> text file containing the target list. Ex: list.txt')
     main_grp.add_argument('-o', '--output-directory', help = '<OUTPUT_DIRECTORY> (optional): query output directory (default \'./<QUERY>/\')')
     main_grp.add_argument('-w', '--workers', help = '<WORKERS> (optional): number of parallel execution workers (default 4)', default = 4)
+    main_grp.add_argument('-c', '--cache', action='store_true', help = 'Use cached results')
 
     output_grp = parser.add_argument_group('Output parameters')
-    output_grp.add_argument('-S', '--screenshot', action='store_true', help='Takes screenshot of each page')
     output_grp.add_argument('-I', '--images', action='store_true', help = 'collect all images on indexed pages')
     output_grp.add_argument('-T', '--text', action='store_true', help='collect all text on indexed pages')
     output_grp.add_argument('-L', '--links', action='store_true', help = 'collect all links on indexed pages')
-    output_grp.add_argument('-H', '--html', action='store_true', help = 'download html of indexed pages')
-    output_grp.add_argument('-max', help='Filter pages with text length greater than <max>.', type=int, nargs='?')
-    output_grp.add_argument('-min', help='Filter pages with text length less than <min>.', type=int, nargs='?')
+    output_grp.add_argument('-max', help='<MAX> (optional): Filter pages with text length greater than defined value.', type=int, nargs='?')
+    output_grp.add_argument('-min', help='<MIN> (optional): Filter pages with text length less than defined value.', type=int, nargs='?')
 
     return parser.parse_args()
 
 def main():
-    global max
-    global min
-
     args = parser()
-    root = os.getcwd()
     
-
     if args.input_file != None:
         with open(args.input_file,'rb') as file:
             try:
@@ -203,23 +234,28 @@ def main():
     else:
         input_list = [args.QUERY]
     
-    for line in input_list:
-        telegraph = Scraper(line)
+    if args.output_directory:
+        root = os.path.abspath(args.output_directory)
+    else:
+        root = os.getcwd()
 
-        telegraph.pagelist = list(filter(telegraph.filterSpam, telegraph.pagelist))
-        if args.max or args.min:
-            max = args.max
-            min = args.min
-            telegraph.pagelist = list(filter(telegraph.filterText, telegraph.pagelist))
+    if args.workers:
+        pass
 
-        filtered_pages = telegraph.pagelist
+    for query in input_list:
+        telegraph = Scraper(query)
+        
+        telegraph.filterSpam()
 
-        if args.screenshot or args.images or args.text or args.links or args.html:
-            query_path = os.path.join(root, line)
+        if args.min or args.max:
+            telegraph.filterText(args.min, args.max)
+
+        if args.images or args.text or args.links:
+            query_path = os.path.join(root, query)
             if not os.path.exists(query_path):
                 os.makedirs(query_path)
 
-            for page in filtered_pages:
+            for page in telegraph.pagelist:
                 page_name = page['result']['path']
                 page_path = os.path.join(query_path, page_name)
                 if not os.path.exists(page_path):
@@ -230,22 +266,18 @@ def main():
                     telegraph.getImages(page)
                 
                 if args.text:
-                    try:
-                        telegraph.getText(page)
-                    except Exception as ex:
-                        print(f'Page {page_name} crashed: {ex}')
+                    telegraph.getText(page)
                 
                 if args.links:
                     telegraph.getLinks(page)
-
                 
         else:
-            links = [page['result']['url'] for page in filtered_pages]
-            with open(f'{line}.txt', 'w') as f:
+            links = [page['result']['url'] for page in telegraph.pagelist]
+            with open(f'{query}.txt', 'w') as f:
                 for link in links:
                     f.write(f'{link}\n')
 
-        os.chdir(root)        
-                
+        os.chdir(root)
+      
 if __name__ == '__main__':
     main()
