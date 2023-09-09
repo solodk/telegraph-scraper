@@ -11,9 +11,9 @@ import extra
 
 logging.basicConfig(
     level=logging.INFO,  # Set the logging level to INFO
-    filename="scraper.log",  # Specify the log file
-    format="%(asctime)s [%(levelname)s] - %(message)s",  # Define log message format
-    datefmt="%Y-%m-%d %H:%M:%S",  # Define date and time format
+    filename='scraper.log',  # Specify the log file
+    format='%(asctime)s [%(levelname)s] - %(message)s',  # Define log message format
+    datefmt='%Y-%m-%d %H:%M:%S',  # Define date and time format
 )
 
 class Scraper(object):
@@ -35,11 +35,11 @@ class Scraper(object):
         logging.info(f'Initialized scraper for query: {query}')
     
     def getCache(self):
-        """
+        '''
         Loads cached data from the cache file or initializes an empty cache if none is found
         :params: none
         :return: none
-        """
+        '''
         try:
             with open(self.cache_path, 'r', encoding='utf-8') as f:
                 f.seek(0)
@@ -343,7 +343,7 @@ class Scraper(object):
                 self.pagelist.remove(page)
             elif max_length is not None and length > max_length:
                 self.pagelist.remove(page)
-                    
+
 def parser():
     '''
     Returns the parser arguments
@@ -356,7 +356,8 @@ def parser():
     main_grp = parser.add_argument_group('Main parameters')
     main_grp.add_argument('QUERY', help = 'Single query given as a positional argument', type=str, nargs = '?')
     main_grp.add_argument('-i', '--input-file', help = '<INPUT_FILE> text file containing the target list. Ex: list.txt')
-    main_grp.add_argument('-o', '--output-directory', help = '<OUTPUT_DIRECTORY> (optional): query output directory (default \'./<QUERY>/\')')
+    main_grp.add_argument('-o', '--output-directory', help = '<OUTPUT_DIRECTORY> (optional): query output directory (default "~/Downloads/")',
+                          default=os.path.join(os.path.expanduser('~'), 'Downloads'))
     main_grp.add_argument('-w', '--workers', help = '<WORKERS> (optional): number of parallel execution workers (default 4)', default = 4)
 
     output_grp = parser.add_argument_group('Output parameters')
@@ -367,6 +368,19 @@ def parser():
     output_grp.add_argument('-min', help='<MIN> (optional): Filter pages with text length less than defined value.', type=int, nargs='?')
 
     return parser.parse_args()
+
+def deleteEmptyFolders(directory):
+    '''
+    Recursively delete empty folders starting from the given directory.
+    :params: The directory to start searching for empty folders.
+    :return: none
+    '''
+    for root, dirs, files in os.walk(directory, topdown=False):
+        for dir_name in dirs:
+            folder_path = os.path.join(root, dir_name)
+            if not os.listdir(folder_path):
+                os.rmdir(folder_path)
+                logging.info(f'Deleted empty folder: {folder_path}')
 
 def main():
     args = parser()
@@ -405,7 +419,9 @@ def main():
             scraper.getLinks()
                 
         if not args.images or not args.text or not args.links:
-            scraper.getPagesUrl()            
+            scraper.getPagesUrl()
 
+    deleteEmptyFolders(args.output_directory)
+    
 if __name__ == '__main__':
     main()
