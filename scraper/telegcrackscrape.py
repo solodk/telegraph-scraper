@@ -23,6 +23,7 @@ class Scraper(object):
         self.cache_file = query + '_cache_store'
         self.cache_path = os.path.join(os.path.dirname(__file__), 'cache', self.cache_file)
         self.currentdate = datetime.now()
+        self.headers = extra.visitinfo
         root = os.getcwd()
         self.query_path = os.path.join(root, query)
         if not os.path.exists(self.query_path):
@@ -130,7 +131,8 @@ class Scraper(object):
         '''
         try:
             result = self.session.get(
-                f'https://api.telegra.ph/getPage/{search_query}?return_content=true'
+                f'https://api.telegra.ph/getPage/{search_query}?return_content=true',
+                headers=self.headers
             ).json()
             logging.info(f'Successfully fetched JSON data for {search_query}')
         except Exception as ex:
@@ -174,7 +176,13 @@ class Scraper(object):
             for index, file in enumerate(self.imagelist, start=1):
                 try:
                     with open(f'{index}.jpg', 'wb') as f:
-                        f.write(requests.get(f'https://telegra.ph/file/{file}', stream=True).content)
+                        image_url = f'https://telegra.ph/file/{file}'
+                        image_response = requests.get(
+                            image_url,
+                            stream=True,
+                            headers=self.headers
+                        )
+                        f.write(image_response.content)
                     logging.info(f'Downloaded {index} of {len(self.imagelist)} images from page "{page_name}"')
                 except requests.RequestException as ex:
                     logging.error(f'Error downloading image {file}: {ex}')

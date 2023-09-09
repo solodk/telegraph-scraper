@@ -29,22 +29,10 @@ user_agents = [
 ]
 
 visitinfo = {
-    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8",
-    "Accept-Encoding": "gzip, deflate",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
+    "Accept-Encoding": "gzip, deflate, br",
     "Accept-Language": "en-US,en;q=0.9",
-    "Connection": "keep-alive",
-    "Host": "telegra.ph",
     "Upgrade-Insecure-Requests": "1",
-    "User-Agent": random.choice(user_agents),
-}
-
-visituserinfo = {
-    "Accept": "*/*",
-    "Accept-Encoding": "gzip, deflate",
-    "Accept-Language": "en-US,en;q=0.9",
-    "Connection": "keep-alive",
-    "Host": "telegcrack.com",
-    "Referer": "https://telegcrack.com/ru/",
     "User-Agent": random.choice(user_agents),
 }
 
