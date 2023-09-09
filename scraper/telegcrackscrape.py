@@ -1,12 +1,20 @@
 import argparse
+import os
 import requests
 import json
-import os
+import logging
 
 from datetime import datetime, timedelta
 from tqdm import tqdm
 
 import extra
+
+logging.basicConfig(
+    level=logging.INFO,  # Set the logging level to INFO
+    filename="scraper.log",  # Specify the log file
+    format="%(asctime)s [%(levelname)s] - %(message)s",  # Define log message format
+    datefmt="%Y-%m-%d %H:%M:%S",  # Define date and time format
+)
 
 class Scraper(object):
     def __init__(self, query):
@@ -23,6 +31,7 @@ class Scraper(object):
         self.getCache()
         self.indexQuery()
         self.updateCache()
+        logging.info(f'Initialized scraper for query: {query}')
     
     def getCache(self):
         """
@@ -34,8 +43,10 @@ class Scraper(object):
             with open(self.cache_path, 'r', encoding='utf-8') as f:
                 f.seek(0)
                 self.cache = json.load(f)
+            logging.info(f'Loaded cached data from: {self.cache_path}')
         except Exception:
             self.cache = {}
+            logging.info(f'Loaded cached data from: {self.cache_path}')
         self.newQuery()
 
     def updateCache(self):
@@ -55,6 +66,7 @@ class Scraper(object):
 
         with open(self.cache_path, 'w', encoding='utf-8') as f:
             json.dump(self.cache, f, ensure_ascii=False, indent=4, default=str)
+        logging.info(f'Updated cache at: {self.cache_path}')
     
     def newQuery(self):
         '''
@@ -77,6 +89,7 @@ class Scraper(object):
         :params: none
         :return: none
         '''
+        logging.info(f'Indexing "{self.input_query}" pages...')
         index = 1
         delta = self.end_date - self.start_date
         self.outer_pbar = tqdm(
@@ -97,15 +110,16 @@ class Scraper(object):
 
             try:
                 data = self.getJSON(search_query)
-                if data['ok'] is True:
+                if data['ok']:
                     self.pagelist.append(data)
                     index += 1
+                    logging.info(f'Successfully fetched page data for {search_query}')
                 else:
                     self.start_date += timedelta(days=1)
                     index = 1 #Reset the index
                     self.outer_pbar.update()
             except Exception as ex:
-                print(f'indexQuery(): Error at {search_query}')
+                logging.error(f'Error at {search_query}: {ex}')
         self.outer_pbar.close()    
                 
     def getJSON(self, search_query):
@@ -118,8 +132,10 @@ class Scraper(object):
             result = self.session.get(
                 f'https://api.telegra.ph/getPage/{search_query}?return_content=true'
             ).json()
+            logging.info(f'Successfully fetched JSON data for {search_query}')
         except Exception as ex:
-            print(f'getJSON(): Failed to get {search_query}')
+            logging.error(f'Error while processing {search_query}: {ex}')
+            result = None
         return result
 
     def getImages(self):
@@ -141,8 +157,12 @@ class Scraper(object):
             if not os.path.exists(page_path):
                 os.makedirs(page_path)
             os.chdir(page_path)
-            
-            self.getImageList(page)
+
+            logging.info(f'Extracting image URLs from page "{page_name}"...')
+            try:
+                self.getImageList(page)
+            except Exception as ex:
+                logging.error(f'Error while processing page "{page_name}": {ex}')
 
             self.inner_pbar = tqdm(
                 total=len(self.imagelist),
@@ -152,8 +172,14 @@ class Scraper(object):
                 leave=False
             )
             for index, file in enumerate(self.imagelist, start=1):
-                with open(f'{index}.jpg', 'wb') as f:
-                    f.write(requests.get(f'https://telegra.ph/file/{file}', stream=True).content)
+                try:
+                    with open(f'{index}.jpg', 'wb') as f:
+                        f.write(requests.get(f'https://telegra.ph/file/{file}', stream=True).content)
+                    logging.info(f'Downloaded {index} of {len(self.imagelist)} images from page "{page_name}"')
+                except requests.RequestException as ex:
+                    logging.error(f'Error downloading image {file}: {ex}')
+                except Exception as ex:
+                    logging.error(f'Error while processing image {file}: {ex}')
                 self.inner_pbar.update()
             self.inner_pbar.close()
 
@@ -167,13 +193,12 @@ class Scraper(object):
         :params: page (dict) - JSON data for a telegraph page
         :return: None
         '''
-        self.imagelist = []
         content = page['result']['content']
-        for item in content:
-            if isinstance(item, dict) and item['tag'] == 'figure':
-                for sub_tag in item['children']:
-                    if sub_tag['tag'] == 'img':
-                        self.imagelist.append(sub_tag['attrs']['src'][6:])
+        self.imagelist = [sub_tag['attrs']['src'][6:]
+                        for item in content
+                        if isinstance(item, dict) and item['tag'] == 'figure'
+                        for sub_tag in item['children']
+                        if sub_tag['tag'] == 'img']
 
     def getText(self):
         '''
@@ -195,7 +220,11 @@ class Scraper(object):
                 os.makedirs(page_path)
             os.chdir(page_path)
             
-            self.getTextList(page)
+            logging.info(f'Collecting text from page "{page_name}"...')
+            try:
+                self.getTextList(page)
+            except Exception as ex:
+                logging.error(f'Error while processing page "{page_name}": {ex}')
 
             self.textlist = list(filter(None, self.textlist)) #filter empty values from textlist
             if self.textlist:
@@ -212,14 +241,12 @@ class Scraper(object):
         :params: page (dict) - JSON data for a telegraph page.
         :return: None
         '''
-        self.textlist = []
         content = page['result']['content']
-        for item in content:
-            if 'tag' in item and item['tag'] == 'p':
-                if 'children' in item:
-                    for child in item['children']:
-                        if isinstance(child, str):
-                            self.textlist.append(child.replace('\n', ' ').strip())
+        self.textlist = [child.replace('\n', ' ').strip()
+                        for item in content
+                        if 'tag' in item and item['tag'] == 'p'
+                        for child in item.get('children', [])
+                        if isinstance(child, str)]
     
     def getLinks(self):
         '''
@@ -241,7 +268,11 @@ class Scraper(object):
                 os.makedirs(page_path)
             os.chdir(page_path)
             
-            self.getLinksList(page)
+            logging.info(f'Collecting links from page "{page_name}"...')
+            try:
+                self.getLinksList(page)
+            except Exception as ex:
+                logging.error(f'Error while processing page "{page_name}": {ex}')
 
             if self.linklist:
                 with open('links.txt', 'w', encoding='utf-8') as f:
@@ -257,15 +288,14 @@ class Scraper(object):
         :params: page (dict) - JSON data for a telegraph page.
         :return: none
         '''
-        self.linklist = []
         content = page['result']['content']
-        for item in content:
-            #if isinstance(item, dict) and 'children' in item:
-            if 'children' in item:
-                for dict in item['children']:
-                    if 'tag' in dict and dict['tag'] == 'a':
-                        #dict['attrs']['href']
-                        self.linklist.append(dict['attrs']['href'])
+        self.linklist = [link['attrs']['href']
+                        for item in content
+                        if 'children' in item
+                        for child in item['children']
+                        if isinstance(child, dict) and child['tag'] == 'a'
+                        for link in [child]]
+
 
     def getPagesUrl(self):
         '''
@@ -285,6 +315,7 @@ class Scraper(object):
         :params: none
         :return: none
         '''
+        logging.info(f'Filtering out spam pages...')
         for page in self.pagelist[:]:
             author_name = page.get('result', {}).get('author_name')
             if author_name is not None and author_name in extra.spam:
@@ -296,6 +327,7 @@ class Scraper(object):
         :params: min_length (int, optional) - Minimum text length; max_length (int, optional) - Maximum text length.
         :return: none
         '''
+        logging.info(f'Filtering pages based on text length criteria...')
         for page in self.pagelist[:]:
             self.getTextList(page)
             length = sum(len(string) for string in self.textlist)
