@@ -1,4 +1,5 @@
 import argparse
+import concurrent.futures
 import os
 import requests
 import json
@@ -29,9 +30,6 @@ class Scraper(object):
         if not os.path.exists(self.query_path):
             os.makedirs(self.query_path)
         os.chdir(self.query_path)
-        self.getCache()
-        self.indexQuery()
-        self.updateCache()
         logging.info(f'Initialized scraper for query: {query}')
     
     def getCache(self):
@@ -84,45 +82,51 @@ class Scraper(object):
             self.end_date = self.start_date + timedelta(366)
             self.pagelist = []
 
-    def indexQuery(self):
+
+    def indexQuery(self, workers):
         '''
         Iterates through a range of dates to fetch pages using the search query, appending valid pages to the pagelist
         :params: none
         :return: none
         '''
         logging.info(f'Indexing "{self.input_query}" pages...')
-        index = 1
-        delta = self.end_date - self.start_date
         self.outer_pbar = tqdm(
                 total=delta.days,
                 desc=f'Indexing "{self.input_query}" pages',
                 unit=' page',
-                position=0,
-                leave=True
-            )
-        while self.start_date < self.end_date:
-            formatted_date = self.start_date.strftime('%m-%d')
-            search_query = [self.input_query, formatted_date]
+                # position=0,
+                leave=False
+        )
 
-            if index > 1:
-                search_query.append(str(index))
+        def fetch_page(start_date):
+            index = 1
+            while True:
+                formatted_date = start_date.strftime('%m-%d')
+                search_query = [self.input_query, formatted_date]
 
-            search_query = '-'.join(search_query)
+                if index > 1:
+                    search_query.append(str(index))
 
-            try:
-                data = self.getJSON(search_query)
-                if data['ok']:
-                    self.pagelist.append(data)
-                    index += 1
-                    logging.info(f'Successfully fetched page data for {search_query}')
-                else:
-                    self.start_date += timedelta(days=1)
-                    index = 1 #Reset the index
-                    self.outer_pbar.update()
-            except Exception as ex:
-                logging.error(f'Error at {search_query}: {ex}')
-        self.outer_pbar.close()    
-                
+                try:
+                    data = self.getJSON('-'.join(search_query))
+                    if data['ok']:
+                        self.pagelist.append(data)
+                        index += 1
+                        logging.info(f'Successfully fetched page data for {search_query}')
+                    else:
+                        self.outer_pbar.update()
+                        break
+                except Exception as ex:
+                    logging.error(f'Error at {search_query}: {ex}')
+
+        delta = self.end_date - self.start_date
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as executor:
+            dates_range = [self.start_date + timedelta(days=i) for i in range(delta.days)]
+            list(executor.map(fetch_page, dates_range))
+
+        self.outer_pbar.close()
+
     def getJSON(self, search_query):
         '''
         Sends an HTTP request to the Telegraph API to fetch page data for a given search query
@@ -150,7 +154,7 @@ class Scraper(object):
                 total=len(self.pagelist),
                 desc=f'Scrapping images from "{self.input_query}" pages',
                 unit=' page',
-                position=0,
+                # position=0,
                 leave=True
             )
         for page in self.pagelist:
@@ -170,7 +174,7 @@ class Scraper(object):
                 total=len(self.imagelist),
                 desc=f'Downloading images from "{page_name}" page',
                 unit=' image',
-                position=1,
+                # position=1,
                 leave=False
             )
             for index, file in enumerate(self.imagelist, start=1):
@@ -218,7 +222,7 @@ class Scraper(object):
                 total=len(self.pagelist),
                 desc=f'Scrapping text from "{self.input_query}" pages',
                 unit=' page',
-                position=0,
+                # position=0,
                 leave=True
             )
         for page in self.pagelist:
@@ -266,7 +270,7 @@ class Scraper(object):
                 total=len(self.pagelist),
                 desc=f'Scrapping links from "{self.input_query}" pages',
                 unit=' page',
-                position=0,
+                #position=0,
                 leave=True
             )
         for page in self.pagelist:
@@ -356,9 +360,9 @@ def parser():
     main_grp = parser.add_argument_group('Main parameters')
     main_grp.add_argument('QUERY', help = 'Single query given as a positional argument', type=str, nargs = '?')
     main_grp.add_argument('-i', '--input-file', help = '<INPUT_FILE> text file containing the target list. Ex: list.txt')
-    main_grp.add_argument('-o', '--output-directory', help = '<OUTPUT_DIRECTORY> (optional): query output directory (default "~/Downloads/")',
-                          default=os.path.join(os.path.expanduser('~'), 'Downloads'))
-    main_grp.add_argument('-w', '--workers', help = '<WORKERS> (optional): number of parallel execution workers (default 4)', default = 4)
+    main_grp.add_argument('-o', '--output-directory', help = '<OUTPUT_DIRECTORY> (optional): query output directory (default "./Scraper/")',
+                          default=os.path.join(os.getcwd(), 'Scraper'))
+    main_grp.add_argument('-w', '--workers', help = '<WORKERS> (optional): number of parallel execution workers (default 4)', type=int, default = 4)
 
     output_grp = parser.add_argument_group('Output parameters')
     output_grp.add_argument('-I', '--images', action='store_true', help = 'collect all images on indexed pages')
@@ -395,15 +399,17 @@ def main():
     else:
         input_list = [args.QUERY]
     
-    if args.output_directory:
-        os.chdir(os.path.abspath(args.output_directory))
-
-    if args.workers:
-        pass
-    
     for query in input_list:
+
+        if args.output_directory:
+            if not os.path.exists(args.output_directory):
+                os.makedirs(args.output_directory)
+            os.chdir(args.output_directory)
+
         scraper = Scraper(query)
-        
+        scraper.getCache()
+        scraper.indexQuery(args.workers)
+        scraper.updateCache()
         scraper.filterSpam()
 
         if args.min or args.max:
@@ -418,9 +424,9 @@ def main():
         if args.links:
             scraper.getLinks()
                 
-        if not args.images or not args.text or not args.links:
+        if not (args.images or args.text or args.links):
             scraper.getPagesUrl()
-
+    
     deleteEmptyFolders(args.output_directory)
     
 if __name__ == '__main__':
