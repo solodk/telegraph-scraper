@@ -11,10 +11,10 @@ from tqdm import tqdm
 import extra
 
 logging.basicConfig(
-    level=logging.INFO,  # Set the logging level to INFO
-    filename='scraper.log',  # Specify the log file
-    format='%(asctime)s [%(levelname)s] - %(message)s',  # Define log message format
-    datefmt='%Y-%m-%d %H:%M:%S',  # Define date and time format
+    level=logging.INFO,
+    filename=os.path.join(os.path.dirname(__file__), 'scraper.log'),
+    format='%(asctime)s [%(levelname)s] - %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S',
 )
 
 class Scraper(object):
@@ -89,6 +89,8 @@ class Scraper(object):
         :params: none
         :return: none
         '''
+        delta = self.end_date - self.start_date
+
         logging.info(f'Indexing "{self.input_query}" pages...')
         self.outer_pbar = tqdm(
                 total=delta.days,
@@ -118,8 +120,6 @@ class Scraper(object):
                         break
                 except Exception as ex:
                     logging.error(f'Error at {search_query}: {ex}')
-
-        delta = self.end_date - self.start_date
 
         with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as executor:
             dates_range = [self.start_date + timedelta(days=i) for i in range(delta.days)]
@@ -402,6 +402,7 @@ def main():
     for query in input_list:
 
         if args.output_directory:
+            args.output_directory = os.path.join(os.getcwd(), args.output_directory)
             if not os.path.exists(args.output_directory):
                 os.makedirs(args.output_directory)
             os.chdir(args.output_directory)
