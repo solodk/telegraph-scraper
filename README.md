@@ -60,16 +60,17 @@ Explore more options using the `--help` command.
 
 ## Options
 
-| Option               | Secondary Options | Description                                                                                               |
-| -------------------- | ----------------- | --------------------------------------------------------------------------------------------------------- |
-| -i or --input-file   | <INPUT_FILE>      | Text file containing the target list. Ex: list.txt                                                         |
-| -o or --output-directory | <OUTPUT_DIRECTORY> | Output directory for query results (default "./Scraper/")                                           |
-| -w or --workers      | <WORKERS>         | Number of parallel execution workers (default 4)                                                         |
-| -I or --images       |                   | Collect all images on indexed pages                                                                      |
-| -T or --text         |                   | Collect all text on indexed pages                                                                        |
-| -L or --links        |                   | Collect all links on indexed pages                                                                       |
-| -max                 | <MAX>             | Filter pages with text length greater than the defined value.                                            |
-| -min                 | <MIN>             | Filter pages with text length less than the defined value.                                               |
+| Option               | Secondary Options | Description                                                   |
+| -------------------- | ----------------- | ------------------------------------------------------------- |
+| -i                   | --input-file      | Text file containing the target list. Ex: list.txt            |
+| -o                   | --output-directory| Output directory for query results (default "./Scraper/")     |
+| -w                   | --workers         | Number of parallel execution workers (default 4)              |
+| -I                   | --images          | Collect all images on indexed pages                           |
+| -T                   | --text            | Collect all text on indexed pages                             |
+| -L                   | --links           | Collect all links on indexed pages                            |
+| -max                 |                   | Filter pages with text length greater than the defined value. |
+| -min                 |                   | Filter pages with text length less than the defined value.    |
+
 
 ## License
 
