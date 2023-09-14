@@ -3,7 +3,7 @@ from setuptools import find_packages, setup
 
 setup(
     name="telegraph-scraper",
-    version="1.0.0",
+    version="1.0.4",
     description="A Python scraper for Telegraph pages",
     author="Mykola Solodky",
     author_email="solodk.m@gmail.com",
@@ -15,7 +15,7 @@ setup(
     ],
     entry_points={
         'console_scripts': [
-            'telegraph-scraper = telegraph_scraper.__main__:main',
+            'telegraph-scraper = scraper:main',
         ],
     },
     keywords="telegraph scrape image images download",

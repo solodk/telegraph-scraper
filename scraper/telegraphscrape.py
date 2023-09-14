@@ -8,7 +8,7 @@ import logging
 from datetime import datetime, timedelta
 from tqdm import tqdm
 
-import extra
+from . import extra
 
 logging.basicConfig(
     level=logging.INFO,

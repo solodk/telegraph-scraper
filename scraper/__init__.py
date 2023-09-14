@@ -1,1 +1,1 @@
-from telegraphscrape import *
+from scraper.telegraphscrape import *
