@@ -4,6 +4,7 @@ import os
 import requests
 import json
 import logging
+import re
 
 from datetime import datetime, timedelta
 from tqdm import tqdm
@@ -19,19 +20,34 @@ logging.basicConfig(
 
 class Scraper(object):
     def __init__(self, query):
-        self.input_query = query
+        logging.info(f'Initialization...')
+        self.formated_query = self.formatQuery(query)
         self.session = requests.Session()
-        self.cache_file = query + '_cache_store'
+        self.cache_file = self.formated_query + '_cache_store'
         self.cache_path = os.path.join(os.path.dirname(__file__), 'cache', self.cache_file)
         self.currentdate = datetime.now()
         self.headers = extra.visitinfo
         root = os.getcwd()
-        self.query_path = os.path.join(root, query)
+        self.query_path = os.path.join(root, self.formated_query)
         if not os.path.exists(self.query_path):
             os.makedirs(self.query_path)
         os.chdir(self.query_path)
         logging.info(f'Initialized scraper for query: {query}')
     
+    def formatQuery(self, query):
+        '''
+        Replaces non-Latin characters with '-' and cleans up extra '-' symbols
+        :param query: The input query string.
+        :return: The cleaned query string.
+        '''
+        # Replace non-Latin characters with '-'
+        cleaned_query = re.sub(r'[^a-zA-Z0-9]', '-', query)
+        # Replace multiple '-' with a single '-'
+        cleaned_query = re.sub(r'[-]+', '-', cleaned_query)
+        # Remove '-' from the start and end of the query
+        cleaned_query = cleaned_query.strip('-')
+        return cleaned_query
+
     def getCache(self):
         '''
         Loads cached data from the cache file or initializes an empty cache if none is found
@@ -43,9 +59,9 @@ class Scraper(object):
                 f.seek(0)
                 self.cache = json.load(f)
             logging.info(f'Loaded cached data from: {self.cache_path}')
-        except Exception:
+        except Exception as ex:
             self.cache = {}
-            logging.info(f'Loaded cached data from: {self.cache_path}')
+            logging.info(f'Loaded empty cache. Exception: {ex}')
         self.newQuery()
 
     def updateCache(self):
@@ -91,10 +107,10 @@ class Scraper(object):
         '''
         delta = self.end_date - self.start_date
 
-        logging.info(f'Indexing "{self.input_query}" pages...')
+        logging.info(f'Indexing "{self.formated_query}" pages...')
         self.outer_pbar = tqdm(
                 total=delta.days,
-                desc=f'Indexing "{self.input_query}" pages',
+                desc=f'Indexing "{self.formated_query}" pages',
                 unit=' page',
                 # position=0,
                 leave=False
@@ -104,7 +120,7 @@ class Scraper(object):
             index = 1
             while True:
                 formatted_date = start_date.strftime('%m-%d')
-                search_query = [self.input_query, formatted_date]
+                search_query = [self.formated_query, formatted_date]
 
                 if index > 1:
                     search_query.append(str(index))
@@ -114,7 +130,6 @@ class Scraper(object):
                     if data['ok']:
                         self.pagelist.append(data)
                         index += 1
-                        logging.info(f'Successfully fetched page data for {search_query}')
                     else:
                         self.outer_pbar.update()
                         break
@@ -125,6 +140,7 @@ class Scraper(object):
             dates_range = [self.start_date + timedelta(days=i) for i in range(delta.days)]
             list(executor.map(fetch_page, dates_range))
 
+        logging.info(f'Successfully fetched pages list for "{self.formated_query}"')
         self.outer_pbar.close()
 
     def getJSON(self, search_query):
@@ -138,7 +154,6 @@ class Scraper(object):
                 f'https://api.telegra.ph/getPage/{search_query}?return_content=true',
                 headers=self.headers
             ).json()
-            logging.info(f'Successfully fetched JSON data for {search_query}')
         except Exception as ex:
             logging.error(f'Error while processing {search_query}: {ex}')
             result = None
@@ -152,11 +167,14 @@ class Scraper(object):
         '''
         self.outer_pbar = tqdm(
                 total=len(self.pagelist),
-                desc=f'Scrapping images from "{self.input_query}" pages',
+                desc=f'Scrapping images from "{self.formated_query}" pages',
                 unit=' page',
                 # position=0,
                 leave=True
             )
+        
+        logging.info(f'Scrapping images from "{self.formated_query}" pages...')
+
         for page in self.pagelist:
             page_name = page['result']['path']
             page_path = os.path.join(self.query_path, page_name)
@@ -164,7 +182,6 @@ class Scraper(object):
                 os.makedirs(page_path)
             os.chdir(page_path)
 
-            logging.info(f'Extracting image URLs from page "{page_name}"...')
             try:
                 self.getImageList(page)
             except Exception as ex:
@@ -187,7 +204,6 @@ class Scraper(object):
                             headers=self.headers
                         )
                         f.write(image_response.content)
-                    logging.info(f'Downloaded {index} of {len(self.imagelist)} images from page "{page_name}"')
                 except requests.RequestException as ex:
                     logging.error(f'Error downloading image {file}: {ex}')
                 except Exception as ex:
@@ -197,6 +213,7 @@ class Scraper(object):
 
             self.outer_pbar.update()
         self.outer_pbar.close()
+        logging.info(f'Successfully scraped images for "{self.formated_query}"')
             
     
     def getImageList(self, page):
@@ -220,11 +237,14 @@ class Scraper(object):
         '''
         self.outer_pbar = tqdm(
                 total=len(self.pagelist),
-                desc=f'Scrapping text from "{self.input_query}" pages',
+                desc=f'Scrapping text from "{self.formated_query}" pages',
                 unit=' page',
                 # position=0,
                 leave=True
             )
+        
+        logging.info(f'Scrapping text from "{self.formated_query}" pages...')
+
         for page in self.pagelist:
             page_name = page['result']['path']
             page_path = os.path.join(self.query_path, page_name)
@@ -232,7 +252,6 @@ class Scraper(object):
                 os.makedirs(page_path)
             os.chdir(page_path)
             
-            logging.info(f'Collecting text from page "{page_name}"...')
             try:
                 self.getTextList(page)
             except Exception as ex:
@@ -246,6 +265,7 @@ class Scraper(object):
 
             self.outer_pbar.update()
         self.outer_pbar.close()
+        logging.info(f'Successfully scraped text for "{self.formated_query}"')
 
     def getTextList(self, page):
         '''
@@ -268,11 +288,14 @@ class Scraper(object):
         '''
         self.outer_pbar = tqdm(
                 total=len(self.pagelist),
-                desc=f'Scrapping links from "{self.input_query}" pages',
+                desc=f'Scrapping links from "{self.formated_query}" pages',
                 unit=' page',
                 #position=0,
                 leave=True
             )
+        
+        logging.info(f'Scrapping links from "{self.formated_query}" pages..."')
+
         for page in self.pagelist:
             page_name = page['result']['path']
             page_path = os.path.join(self.query_path, page_name)
@@ -280,7 +303,6 @@ class Scraper(object):
                 os.makedirs(page_path)
             os.chdir(page_path)
             
-            logging.info(f'Collecting links from page "{page_name}"...')
             try:
                 self.getLinksList(page)
             except Exception as ex:
@@ -293,6 +315,7 @@ class Scraper(object):
 
             self.outer_pbar.update()
         self.outer_pbar.close()
+        logging.info(f'Successfully scraped links for "{self.formated_query}"')
 
     def getLinksList(self, page):
         '''
@@ -317,7 +340,7 @@ class Scraper(object):
         '''
         links = [page['result']['url'] for page in self.pagelist]
         os.chdir(self.query_path)
-        with open(f'{self.input_query}.txt', 'w') as f:
+        with open(f'{self.formated_query}.txt', 'w') as f:
             for link in links:
                 f.write(f'{link}\n')
 
@@ -327,11 +350,11 @@ class Scraper(object):
         :params: none
         :return: none
         '''
-        logging.info(f'Filtering out spam pages...')
         for page in self.pagelist[:]:
             author_name = page.get('result', {}).get('author_name')
             if author_name is not None and author_name in extra.spam:
-                self.pagelist.remove(page)     
+                self.pagelist.remove(page)
+        logging.info(f'Filtered out spam pages')
 
     def filterText(self, min_length, max_length):
         '''
@@ -339,7 +362,6 @@ class Scraper(object):
         :params: min_length (int, optional) - Minimum text length; max_length (int, optional) - Maximum text length.
         :return: none
         '''
-        logging.info(f'Filtering pages based on text length criteria...')
         for page in self.pagelist[:]:
             self.getTextList(page)
             length = sum(len(string) for string in self.textlist)
@@ -347,6 +369,7 @@ class Scraper(object):
                 self.pagelist.remove(page)
             elif max_length is not None and length > max_length:
                 self.pagelist.remove(page)
+        logging.info(f'Filtered out pages based on text length criteria')
 
 def parser():
     '''
@@ -359,9 +382,9 @@ def parser():
     )
     main_grp = parser.add_argument_group('Main parameters')
     main_grp.add_argument('QUERY', help = 'Single query given as a positional argument', type=str, nargs = '?')
-    main_grp.add_argument('-i', '--input-file', help = '<INPUT_FILE> text file containing the target list. Ex: list.txt')
-    main_grp.add_argument('-o', '--output-directory', help = '<OUTPUT_DIRECTORY> (optional): query output directory (default "./Scraper/")',
-                          default=os.path.join(os.getcwd(), 'Scraper'))
+    main_grp.add_argument('-i', '--input-file', help = '<INPUT_FILE> text file (each query separated by new line) containing the target list. Ex: list.txt')
+    main_grp.add_argument('-o', '--output-directory', help = '<OUTPUT_DIRECTORY> (optional): query output directory (default "./Scraper results/")',
+                          default=os.path.join(os.getcwd(), 'Scraper results'))
     main_grp.add_argument('-w', '--workers', help = '<WORKERS> (optional): number of parallel execution workers (default 4)', type=int, default = 4)
 
     output_grp = parser.add_argument_group('Output parameters')
@@ -379,12 +402,13 @@ def deleteEmptyFolders(directory):
     :params: The directory to start searching for empty folders.
     :return: none
     '''
+    logging.info(f'Deleting empty folders...')
+
     for root, dirs, files in os.walk(directory, topdown=False):
         for dir_name in dirs:
             folder_path = os.path.join(root, dir_name)
             if not os.listdir(folder_path):
                 os.rmdir(folder_path)
-                logging.info(f'Deleted empty folder: {folder_path}')
 
 def main():
     args = parser()
@@ -415,20 +439,26 @@ def main():
 
         if args.min or args.max:
             scraper.filterText(args.min, args.max)
+            os.chdir(args.output_directory)
 
         if args.images:
             scraper.getImages()
+            os.chdir(args.output_directory)
         
         if args.text:
             scraper.getText()
+            os.chdir(args.output_directory)
         
         if args.links:
             scraper.getLinks()
+            os.chdir(args.output_directory)
                 
         if not (args.images or args.text or args.links):
             scraper.getPagesUrl()
     
     deleteEmptyFolders(args.output_directory)
-    
+
+    logging.info(f'Done')
+
 if __name__ == '__main__':
     main()
